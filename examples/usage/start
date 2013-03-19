@@ -1,0 +1,4 @@
+#!/bin/bash
+
+erl -pa ebin -pa deps/*/ebin -boot start_sasl \
+	-s ssl -s smtpsend -config priv/usage
