@@ -5,12 +5,12 @@
 %%% Created: 19 Mar 2013 by Anton I Alferov <casper@ubca-dp>
 %%%-------------------------------------------------------------------
 
--module(smtpsend).
+-module(smtp_send).
 
 -export([start/0, stop/0]).
 -export([message/3]).
 
-start() -> application:start(smtpsend).
-stop() -> application:stop(smtpsend).
+start() -> application:start(?MODULE).
+stop() -> application:stop(?MODULE).
 
 message(To, Subject, Text) -> smtp_send_server:message(To, Subject, Text).

@@ -5,4 +5,4 @@
 -module(usage).
 -export([start/0]).
 
-start() -> smtpsend:message("username@example.com", "Subject", "Body").
+start() -> smtp_send:message("username@example.com", "Subject", "Body").

@@ -1,1 +1,1 @@
-{deps, ["../../../smtpsend", "git://github.com/aialferov/smtpsend"]}.
+{deps, ["../../../smtp_send"]}.
