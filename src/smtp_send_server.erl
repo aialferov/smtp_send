@@ -14,6 +14,9 @@
 -export([init/1, terminate/2, code_change/3]).
 -export([handle_call/3, handle_cast/2, handle_info/2]).
 
+-define(AddressRx, "^[A-Za-z0-9_%+.-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,4}$").
+-define(AddressCharRx, "[A-Za-z0-9_%@+.-]").
+
 start_link(_Args) -> gen_server:start_link({local, ?MODULE}, ?MODULE,
 	utils_app:get_env([from, host_name, port, user_name, password]), []).
 
@@ -32,9 +35,14 @@ handle_call(
 	{message, ToAddress, Subject, Body}, From,
 	[Smtp = {FromName, FromAddress, HostName, Port, UserName, Password}, Pids]
 ) ->
-	Pid = spawn_link(fun() -> message(FromName, FromAddress, ToAddress,
-		Subject, Body, HostName, Port, UserName, Password, From) end),
-	{noreply, [Smtp, [{Pid, From}|Pids]]}.
+	case re:run(To = normalize_address(ToAddress), ?AddressRx) of
+		{match, _} ->
+			Pid = spawn_link(fun() -> message(FromName, FromAddress, To,
+				Subject, Body, HostName, Port, UserName, Password, From) end),
+			{noreply, [Smtp, [{Pid, From}|Pids]]};
+		nomatch ->
+			{reply, {error, {bad_to_address, To}}, [Smtp, Pids]}
+	end.
 
 handle_cast(_Msg, State) -> {noreply, State}.
 
@@ -54,5 +62,14 @@ message(
 	FromName, FromAddress, ToAddress, Subject, Body,
 	HostName, Port, UserName, Password, From
 ) ->
-	gen_server:reply(From, smtp_send_backend:message(FromName, FromAddress,
-		ToAddress, Subject, Body, HostName, Port, UserName, Password)).
+	gen_server:reply(From, case smtp_send_backend:message(
+		FromName, FromAddress, ToAddress, Subject, Body,
+		HostName, Port, UserName, Password
+	) of ok -> {ok, ToAddress}; Error -> Error end).
+
+normalize_address(Address) -> normalize_address(Address, []).
+normalize_address([H|T], Acc) -> case re:run([H], ?AddressCharRx) of
+	{match, _} -> normalize_address(T, [H|Acc]);
+	nomatch -> normalize_address(T, Acc)
+end;
+normalize_address([], Acc) -> lists:reverse(Acc).
