@@ -20,14 +20,12 @@
 -define(TO(To), "RCPT TO:" ++ "<" ++ To ++ ">" ++ ?CRLF).
 
 -define(DATA, "DATA" ++ ?CRLF).
-
 -define(DATA(FromName, From, To, Subject, Body),
 	"From:" ++ ?SP ++ FromName ++ ?SP ++ "<" ++ From ++ ">" ++ ?CRLF ++ 
 	"To:" ++ ?SP ++ To ++ ?CRLF ++
 	"Subject:" ++ ?SP ++ Subject ++ ?CRLF ++ ?CRLF ++
 	Body ++ ?CRLF ++ "." ++ ?CRLF
 ).
--define(Subject(Subject), "Subject:" ++ ?SP ++ Subject ++ ?CRLF ++ ?CRLF).
 
 -define(QUIT, "QUIT" ++ ?CRLF).
 
