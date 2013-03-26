@@ -8,7 +8,7 @@
 {application, smtp_send, [
 	{id, "smtp_send"},
 	{vsn, "0.0.1"},
-	{description, "Simple SMTP sender."},
+	{description, "Simple SMTP sender"},
 	{modules, [
 		smtp_send,
 		smtp_send_app,
@@ -17,6 +17,6 @@
 		smtp_send_backend
 	]},
 	{registered, [smtp_send_server]},
-	{applications, [kernel, stdlib, sasl]},
+	{applications, [kernel, stdlib, sasl, ssl, utils]},
 	{mod, {smtp_send_app, []}}
 ]}.
