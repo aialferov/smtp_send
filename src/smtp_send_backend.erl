@@ -33,36 +33,74 @@
 -define(ServiceClosing, "221" ++ _).
 -define(AuthSuccess, "235" ++ _).
 -define(ActionOK, "250" ++ _).
+-define(AuthMethodsLine, "250-AUTH ").
+-define(StartTlsLine, "250-STARTTLS" ++ _).
+-define(ActionOK(Response), "250" ++ Response).
+-define(PasswordChallenge, "334 UGFzc3dvcmQ6" ++ ?CRLF).
 -define(StartMailInput, "354" ++ _).
 
 message(
 	FromName, FromAddress, ToAddress, Subject, Body,
 	HostName, Port, UserName, Password
 ) ->
+	{TcpModule, Socket, [AuthMethod|_]} = initialize(HostName, Port),
+	authorize({TcpModule, Socket}, AuthMethod, UserName, Password),
+	{ok, ?AuthSuccess} = TcpModule:recv(Socket, 0),
+	TcpModule:send(Socket, ?FROM(FromAddress)),
+	{ok, ?ActionOK} = TcpModule:recv(Socket, 0),
+	TcpModule:send(Socket, ?TO(ToAddress)),
+	{ok, ?ActionOK} = TcpModule:recv(Socket, 0),
+	TcpModule:send(Socket, ?DATA),
+	{ok, ?StartMailInput} = TcpModule:recv(Socket, 0),
+	TcpModule:send(Socket,
+		?DATA(FromName, FromAddress, ToAddress, Subject, Body)),
+	{ok, ?ActionOK} = TcpModule:recv(Socket, 0),
+	TcpModule:send(Socket, ?QUIT),
+	{ok, ?ServiceClosing} = TcpModule:recv(Socket, 0),
+	TcpModule:close(Socket).
+
+initialize(HostName, Port) ->
 	{ok, Socket} = gen_tcp:connect(HostName, Port, [{active, false}]),
 	{ok, ?ServiceReady} = gen_tcp:recv(Socket, 0),
-	gen_tcp:send(Socket, ?EHLO),
-	{ok, ?ActionOK} = gen_tcp:recv(Socket, 0),
+	initialize({gen_tcp, Socket}).
+
+initialize(Tcp = {TcpModule, Socket}) ->
+	TcpModule:send(Socket, ?EHLO),
+	{ok, ?ActionOK(Response)} = TcpModule:recv(Socket, 0),
+	initialize(Tcp, {tls_required, is_tls_required(Response)}, Response).
+
+initialize({_TcpModule, Socket}, {tls_required, true}, _Response) ->
 	gen_tcp:send(Socket, ?STARTTLS),
 	{ok, ?ServiceReady} = gen_tcp:recv(Socket, 0),
 	{ok, TlsSocket} = ssl:connect(Socket, [{active, false}]),
-	ssl:send(TlsSocket, ?EHLO),
-	{ok, ?ActionOK} = ssl:recv(TlsSocket, 0),
-	ssl:send(TlsSocket, auth(plain, UserName, Password)),
-	{ok, ?AuthSuccess} = ssl:recv(TlsSocket, 0),
-	ssl:send(TlsSocket, ?FROM(FromAddress)),
-	{ok, ?ActionOK} = ssl:recv(TlsSocket, 0),
-	ssl:send(TlsSocket, ?TO(ToAddress)),
-	{ok, ?ActionOK} = ssl:recv(TlsSocket, 0),
-	ssl:send(TlsSocket, ?DATA),
-	{ok, ?StartMailInput} = ssl:recv(TlsSocket, 0),
-	ssl:send(TlsSocket, ?DATA(FromName,
-		FromAddress, ToAddress, Subject, Body)),
-	{ok, ?ActionOK} = ssl:recv(TlsSocket, 0),
-	ssl:send(TlsSocket, ?QUIT),
-	{ok, ?ServiceClosing} = ssl:recv(TlsSocket, 0),
-	ssl:close(TlsSocket).
+	initialize({ssl, TlsSocket});
 
-auth(plain, UserName, Password) ->
-	?AUTH("PLAIN", binary_to_list(base64:encode(
-		[0] ++ UserName ++ [0] ++ Password))).
+initialize({TcpModule, Socket}, {tls_required, false}, Response) ->
+	{TcpModule, Socket, auth_methods(Response)}.
+
+authorize({TcpModule, Socket}, login, UserName, Password) ->
+	TcpModule:send(Socket,
+		?AUTH("LOGIN", binary_to_list(base64:encode(UserName)))),
+	{ok, ?PasswordChallenge} = TcpModule:recv(Socket, 0),
+	TcpModule:send(Socket, binary_to_list(base64:encode(Password)) ++ ?CRLF);
+
+authorize({TcpModule, Socket}, plain, UserName, Password) ->
+	TcpModule:send(Socket, ?AUTH("PLAIN",
+		binary_to_list(base64:encode([0] ++ UserName ++ [0] ++ Password)))).
+
+is_tls_required(?StartTlsLine) -> true;
+is_tls_required([_|T]) -> is_tls_required(T);
+is_tls_required([]) -> false.
+
+auth_methods(?AuthMethodsLine ++ T) -> auth_methods(T, [], []);
+auth_methods([_|T]) -> auth_methods(T);
+auth_methods([]) -> [].
+auth_methods(?SP ++ T, Method, Methods) ->
+	auth_methods(T, [], add_auth_method(Method, Methods));
+auth_methods(?CRLF ++ _, Method, Methods) -> auth_methods([], Method, Methods);
+auth_methods([H|T], Method, Methods) -> auth_methods(T, [H|Method], Methods);
+auth_methods([], Method, Methods) ->
+	lists:reverse(add_auth_method(Method, Methods)).
+
+add_auth_method(Method, Methods) ->
+	[list_to_atom(string:to_lower(lists:reverse(Method)))|Methods].
