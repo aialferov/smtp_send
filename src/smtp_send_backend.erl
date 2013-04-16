@@ -8,6 +8,8 @@
 -module(smtp_send_backend).
 -export([message/9]).
 
+-define(ConnectionTimeout, 60000).
+
 -define(CRLF, "\r\n").
 -define(SP, " ").
 
@@ -60,7 +62,8 @@ message(
 	TcpModule:close(Socket).
 
 initialize(HostName, Port) ->
-	{ok, Socket} = gen_tcp:connect(HostName, Port, [{active, false}]),
+	{ok, Socket} = gen_tcp:connect(HostName, Port,
+		[{active, false}], ?ConnectionTimeout),
 	{ok, ?ServiceReady} = gen_tcp:recv(Socket, 0),
 	initialize({gen_tcp, Socket}).
 
