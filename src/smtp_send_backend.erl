@@ -13,7 +13,7 @@
 -define(CRLF, "\r\n").
 -define(SP, " ").
 
--define(EHLO, "EHLO" ++ ?CRLF).
+-define(EHLO(Service), "EHLO" ++ ?SP ++ Service ++ ?CRLF).
 
 -define(STARTTLS, "STARTTLS" ++ ?CRLF).
 -define(AUTH(Type, Data), "AUTH" ++ ?SP ++ Type ++ ?SP ++ Data ++ ?CRLF).
@@ -36,6 +36,7 @@
 -define(AuthSuccess, "235" ++ _).
 -define(ActionOK, "250" ++ _).
 -define(AuthMethodsLine, "250-AUTH ").
+-define(AuthMethodsLine2, "250 AUTH ").
 -define(StartTlsLine, "250-STARTTLS" ++ _).
 -define(ActionOK(Response), "250" ++ Response).
 -define(PasswordChallenge, "334 UGFzc3dvcmQ6" ++ ?CRLF).
@@ -45,7 +46,7 @@ message(
 	FromName, FromAddress, ToAddress, Subject, Body,
 	HostName, Port, UserName, Password
 ) ->
-	{TcpModule, Socket, [AuthMethod|_]} = initialize(HostName, Port),
+	{TcpModule, Socket, [AuthMethod|_]} = initialize({HostName, Port}),
 	authorize({TcpModule, Socket}, AuthMethod, UserName, Password),
 	{ok, ?AuthSuccess} = TcpModule:recv(Socket, 0),
 	TcpModule:send(Socket, ?FROM(FromAddress)),
@@ -61,24 +62,25 @@ message(
 	{ok, ?ServiceClosing} = TcpModule:recv(Socket, 0),
 	TcpModule:close(Socket).
 
-initialize(HostName, Port) ->
+initialize({HostName, Port}) ->
 	{ok, Socket} = gen_tcp:connect(HostName, Port,
 		[{active, false}], ?ConnectionTimeout),
 	{ok, ?ServiceReady} = gen_tcp:recv(Socket, 0),
-	initialize({gen_tcp, Socket}).
+	initialize({gen_tcp, Socket}, HostName).
 
-initialize(Tcp = {TcpModule, Socket}) ->
-	TcpModule:send(Socket, ?EHLO),
+initialize(Tcp = {TcpModule, Socket}, Service) ->
+	TcpModule:send(Socket, ?EHLO(Service)),
 	{ok, ?ActionOK(Response)} = TcpModule:recv(Socket, 0),
-	initialize(Tcp, {tls_required, is_tls_required(Response)}, Response).
+	initialize(Tcp, Service,
+		{tls_required, is_tls_required(Response)}, Response).
 
-initialize({_TcpModule, Socket}, {tls_required, true}, _Response) ->
+initialize({_TcpModule, Socket}, Service, {tls_required, true}, _Response) ->
 	gen_tcp:send(Socket, ?STARTTLS),
 	{ok, ?ServiceReady} = gen_tcp:recv(Socket, 0),
 	{ok, TlsSocket} = ssl:connect(Socket, [{active, false}]),
-	initialize({ssl, TlsSocket});
+	initialize({ssl, TlsSocket}, Service);
 
-initialize({TcpModule, Socket}, {tls_required, false}, Response) ->
+initialize({TcpModule, Socket}, _Service, {tls_required, false}, Response) ->
 	{TcpModule, Socket, auth_methods(Response)}.
 
 authorize({TcpModule, Socket}, login, UserName, Password) ->
@@ -96,6 +98,7 @@ is_tls_required([_|T]) -> is_tls_required(T);
 is_tls_required([]) -> false.
 
 auth_methods(?AuthMethodsLine ++ T) -> auth_methods(T, [], []);
+auth_methods(?AuthMethodsLine2 ++ T) -> auth_methods(T, [], []);
 auth_methods([_|T]) -> auth_methods(T);
 auth_methods([]) -> [].
 auth_methods(?SP ++ T, Method, Methods) ->
