@@ -9,32 +9,48 @@
 -behaviour(gen_server).
 
 -export([start_link/1]).
+
 -export([message/3]).
+-export([set_config/1]).
 
 -export([init/1, terminate/2, code_change/3]).
 -export([handle_call/3, handle_cast/2, handle_info/2]).
 
+-export([message/5]).
+
+-record(smtp, {name, address, host_name, port, user_name, password}).
+
 start_link(_Args) -> gen_server:start_link({local, ?MODULE}, ?MODULE,
-	utils_app:get_env([from, host_name, port, user_name, password]), []).
+	utils_app:get_env([from, host, auth]), []).
 
 init([
 	{from, {Name, Address}},
-	{host_name, HostName}, {port, Port},
-	{user_name, UserName}, {password, Password}
+	{host, {HostName, Port}},
+	{auth, {UserName, Password}}
 ]) ->
 	process_flag(trap_exit, true),
-	{ok, [{Name, Address, HostName, Port, UserName, Password}, []]}.
+	{ok, [#smtp{
+		name = Name, address = Address,
+		host_name = HostName, port = Port,
+		user_name = UserName, password = Password
+	}, []]}.
 
 message(To, Subject, Body) ->
 	gen_server:call(?MODULE, {message, To, Subject, Body}, infinity).
 
-handle_call(
-	{message, ToAddress, Subject, Body}, From,
-	[Smtp = {FromName, FromAddress, HostName, Port, UserName, Password}, Pids]
-) ->
-	Pid = spawn_link(fun() -> message(FromName, FromAddress, ToAddress,
-		Subject, Body, HostName, Port, UserName, Password, From) end),
-	{noreply, [Smtp, [{Pid, From}|Pids]]}.
+set_config(Config) -> gen_server:call(?MODULE, {set_config, Config}).
+
+handle_call({message, ToAddress, Subject, Body}, From, [Smtp, Pids]) ->
+	Pid = spawn_link(?MODULE, message, [Smtp, ToAddress, Subject, Body, From]),
+	{noreply, [Smtp, [{Pid, From}|Pids]]};
+
+handle_call({set_config, Config}, _From, [Smtp, Pids]) ->
+	{reply, ok, [lists:foldl(fun(Field, S) -> case Field of
+		{from, {Name, Address}} -> S#smtp{name = Name, address = Address};
+		{host, {HostName, Port}} -> S#smtp{host_name = HostName, port = Port};
+		{auth, {UserName, Password}} ->
+			S#smtp{user_name = UserName, password = Password}
+	end end, Smtp, Config), Pids]}.
 
 handle_cast(_Msg, State) -> {noreply, State}.
 
@@ -50,10 +66,11 @@ handle_info(Info, [Smtp, Pids]) ->
 terminate(_Reason, _State) -> ok.
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
 
-message(
-	FromName, FromAddress, ToAddress, Subject, Body,
-	HostName, Port, UserName, Password, From
-) ->
+message(#smtp{
+	name = FromName, address = FromAddress,
+	host_name = HostName, port = Port,
+	user_name = UserName, password = Password
+}, ToAddress, Subject, Body, From) ->
 	gen_server:reply(From, smtp_send_backend:message(
 		FromName, FromAddress, ToAddress, Subject, Body,
 		HostName, Port, UserName, Password
