@@ -16,7 +16,10 @@
 -define(EHLO(Service), "EHLO" ++ ?SP ++ Service ++ ?CRLF).
 
 -define(STARTTLS, "STARTTLS" ++ ?CRLF).
--define(AUTH(Type, Data), "AUTH" ++ ?SP ++ Type ++ ?SP ++ Data ++ ?CRLF).
+
+-define(AUTH(Method, Data), "AUTH" ++ ?SP ++ Method ++ ?SP ++ Data ++ ?CRLF).
+-define(AUTH_LOGIN, "LOGIN").
+-define(AUTH_PLAIN, "PLAIN").
 
 -define(FROM(From), "MAIL FROM:" ++ "<" ++ From ++ ">" ++ ?CRLF).
 -define(TO(To), "RCPT TO:" ++ "<" ++ To ++ ">" ++ ?CRLF).
@@ -37,7 +40,7 @@
 -define(ActionOK, "250" ++ _).
 -define(AuthMethodsLine, "250-AUTH ").
 -define(AuthMethodsLine2, "250 AUTH ").
--define(StartTlsLine, "250-STARTTLS" ++ _).
+-define(StartTlsLine, "250-STARTTLS").
 -define(ActionOK(Response), "250" ++ Response).
 -define(PasswordChallenge, "334 UGFzc3dvcmQ6" ++ ?CRLF).
 -define(StartMailInput, "354" ++ _).
@@ -84,23 +87,21 @@ initialize({TcpModule, Socket}, _Service, {tls_required, false}, Response) ->
 	{TcpModule, Socket, auth_methods(Response)}.
 
 authorize({TcpModule, Socket}, login, UserName, Password) ->
-	TcpModule:send(Socket,
-		?AUTH("LOGIN", binary_to_list(base64:encode(UserName)))),
+	TcpModule:send(Socket, ?AUTH(?AUTH_LOGIN, b64_encode(UserName))),
 	{ok, ?PasswordChallenge} = recv(TcpModule, Socket),
-	TcpModule:send(Socket, binary_to_list(base64:encode(Password)) ++ ?CRLF);
+	TcpModule:send(Socket, b64_encode(Password) ++ ?CRLF);
 
 authorize({TcpModule, Socket}, plain, UserName, Password) ->
-	TcpModule:send(Socket, ?AUTH("PLAIN",
-		binary_to_list(base64:encode([0] ++ UserName ++ [0] ++ Password)))).
+	TcpModule:send(Socket,
+		?AUTH(?AUTH_PLAIN, b64_encode([0|UserName] ++ [0|Password]))).
 
-is_tls_required(?StartTlsLine) -> true;
-is_tls_required([_|T]) -> is_tls_required(T);
-is_tls_required([]) -> false.
+is_tls_required(Response) -> string:str(Response, ?StartTlsLine) > 0.
 
 auth_methods(?AuthMethodsLine ++ T) -> auth_methods(T, [], []);
 auth_methods(?AuthMethodsLine2 ++ T) -> auth_methods(T, [], []);
 auth_methods([_|T]) -> auth_methods(T);
 auth_methods([]) -> [].
+
 auth_methods(?SP ++ T, Method, Methods) ->
 	auth_methods(T, [], add_auth_method(Method, Methods));
 auth_methods(?CRLF ++ _, Method, Methods) -> auth_methods([], Method, Methods);
@@ -114,9 +115,9 @@ add_auth_method(Method, Methods) ->
 recv(TcpModule, Socket) -> recv(TcpModule, Socket, []).
 recv(TcpModule, Socket, Acc) ->
 	{ok, Data} = TcpModule:recv(Socket, 0),
-	case ends_with(Data, ?CRLF) of
+	case lists:suffix(?CRLF, Data) of
 		true -> {ok, Acc ++ Data};
 		false -> recv(TcpModule, Socket, Acc ++ Data)
 	end.
 
-ends_with(String, End) -> string:right(String, string:len(End)) == End.
+b64_encode(List) -> binary_to_list(base64:encode(List)).
