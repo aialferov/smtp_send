@@ -52,16 +52,16 @@ message(
 	{TcpModule, Socket, [AuthMethod|_]} = initialize({HostName, Port}),
 	authorize({TcpModule, Socket}, AuthMethod, UserName, Password),
 	{ok, ?AuthSuccess} = recv(TcpModule, Socket),
-	TcpModule:send(Socket, ?FROM(FromAddress)),
+	send(TcpModule, Socket, ?FROM(FromAddress)),
 	{ok, ?ActionOK} = recv(TcpModule, Socket),
-	TcpModule:send(Socket, ?TO(ToAddress)),
+	send(TcpModule, Socket, ?TO(ToAddress)),
 	{ok, ?ActionOK} = recv(TcpModule, Socket),
-	TcpModule:send(Socket, ?DATA),
+	send(TcpModule, Socket, ?DATA),
 	{ok, ?StartMailInput} = recv(TcpModule, Socket),
-	TcpModule:send(Socket,
+	send(TcpModule, Socket,
 		?DATA(FromName, FromAddress, ToAddress, Subject, Body)),
 	{ok, ?ActionOK} = recv(TcpModule, Socket),
-	TcpModule:send(Socket, ?QUIT),
+	send(TcpModule, Socket, ?QUIT),
 	{ok, ?ServiceClosing} = recv(TcpModule, Socket),
 	TcpModule:close(Socket).
 
@@ -72,13 +72,13 @@ initialize({HostName, Port}) ->
 	initialize({gen_tcp, Socket}, HostName).
 
 initialize(Tcp = {TcpModule, Socket}, Service) ->
-	TcpModule:send(Socket, ?EHLO(Service)),
+	send(TcpModule, Socket, ?EHLO(Service)),
 	{ok, ?ActionOK(Response)} = recv(TcpModule, Socket),
 	TlsRequired = TcpModule =/= ssl andalso is_tls_required(Response),
 	initialize(Tcp, Service, {tls_required, TlsRequired}, Response).
 
 initialize({_TcpModule, Socket}, Service, {tls_required, true}, _Response) ->
-	gen_tcp:send(Socket, ?STARTTLS),
+	send(gen_tcp, Socket, ?STARTTLS),
 	{ok, ?ServiceReady} = recv(gen_tcp, Socket),
 	{ok, TlsSocket} = ssl:connect(Socket, [{active, false}]),
 	initialize({ssl, TlsSocket}, Service);
@@ -87,12 +87,12 @@ initialize({TcpModule, Socket}, _Service, {tls_required, false}, Response) ->
 	{TcpModule, Socket, auth_methods(Response)}.
 
 authorize({TcpModule, Socket}, login, UserName, Password) ->
-	TcpModule:send(Socket, ?AUTH(?AUTH_LOGIN, b64_encode(UserName))),
+	send(TcpModule, Socket, ?AUTH(?AUTH_LOGIN, b64_encode(UserName))),
 	{ok, ?PasswordChallenge} = recv(TcpModule, Socket),
-	TcpModule:send(Socket, b64_encode(Password) ++ ?CRLF);
+	send(TcpModule, Socket, b64_encode(Password) ++ ?CRLF);
 
 authorize({TcpModule, Socket}, plain, UserName, Password) ->
-	TcpModule:send(Socket,
+	send(TcpModule, Socket,
 		?AUTH(?AUTH_PLAIN, b64_encode([0|UserName] ++ [0|Password]))).
 
 is_tls_required(Response) -> string:str(Response, ?StartTlsLine) > 0.
@@ -111,6 +111,8 @@ auth_methods([], Method, Methods) ->
 
 add_auth_method(Method, Methods) ->
 	[list_to_atom(string:to_lower(lists:reverse(Method)))|Methods].
+
+send(TcpModule, Socket, Data) -> TcpModule:send(Socket, Data).
 
 recv(TcpModule, Socket) -> recv(TcpModule, Socket, []).
 recv(TcpModule, Socket, Acc) ->

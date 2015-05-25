@@ -1,4 +1,4 @@
 #!/bin/bash
 
-erl -pa ebin -pa deps/*/ebin -boot start_sasl -config priv/usage \
+erl -pa ebin -pa deps/*/ebin -pa /usr/local/lib/emake/ebin -boot start_sasl -config priv/usage \
 	-s utils -s ssl -s smtp_send
